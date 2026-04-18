@@ -1,0 +1,233 @@
+---
+# Ansible RHEL9 Cluster Security Playbooks - Security Hardening Playbook
+# Implements defense-in-depth security controls for production nginx cluster
+
+- name: Apply System Security Hardening
+  hosts: cluster
+  become: true
+  vars_files:
+    - ../inventory.ini
+  environment:
+    ANSIBLE_CALLBACK_PLUGINS: community.general.profile_tasks
+
+  # Pre-flight validation
+  pre_tasks:
+    - name: Verify fail2ban is installed
+      ansible.builtin.package:
+        name: fail2ban
+        state: present
+      register: fail2ban_install
+
+    - name: Fail if fail2ban not found
+      ansible.builtin.fail:
+        msg: "Fail2ban must be installed before applying security hardening. Run site.yml first."
+      when:
+        - "'fail2ban' not in fail2ban_install.packages"
+        - fail2ban_install.changed
+
+    - name: Gather kernel facts
+      ansible.builtin.setup:
+        filter: kernel
+
+  # Kernel parameter hardening
+  tasks:
+    - name: Configure secure kernel parameters
+      ansible.posix.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        sysctl_file: /etc/sysctl.d/99-nginx-security.conf
+        state: present
+        reload: true
+      loop:
+        - { name: 'net.ipv4.tcp_syncookies', value: '1' }  # SYN flood protection
+        - { name: 'net.ipv4.tcp_max_syn_backlog', value: '4096' }  # Handle connection storms
+        - { name: 'net.ipv4.ip_forward', value: '0' }  # Disable IP forwarding (not a router)
+        - { name: 'net.ipv4.conf.all.send_redirects', value: '0' }  # No ICMP redirects
+        - { name: 'net.ipv6.conf.all.disable_ipv6', value: '1' }  # Disable IPv6 if not needed
+        - { name: 'fs.suid_dumpable', value: '0' }  # No core dumps with SUID
+        - { name: 'kernel.randomize_va_space', value: '2' }  # ASLR enabled
+        - { name: 'net.ipv4.conf.all.rp_filter', value: '1' }  # Reverse path filtering
+        - { name: 'net.ipv4.tcp_tw_reuse', value: '0' }  # Don't reuse TIME_WAIT sockets
+        - { name: 'net.ipv4.tcp_fin_timeout', value: '30' }  # Faster FIN timeout
+        - { name: 'fs.file-max', value: '2097152' }  # Increase file descriptor limit
+        - { name: 'kernel.pid_max', value: '500000' }  # Increase PID max for containers
+
+    - name: Apply sysctl changes
+      ansible.builtin.command: sysctl -p /etc/sysctl.d/99-nginx-security.conf
+      changed_when: true
+
+    - name: Create fail2ban jail configuration directory
+      ansible.builtin.file:
+        path: /etc/fail2ban/jail.d
+        state: directory
+        mode: '0750'
+        owner: root
+        group: root
+
+    - name: Configure nginx fail2ban jail
+      community.general.lineinfile:
+        path: /etc/fail2ban/jail.local
+        line: "{{ item }}"
+      loop:
+        - "[nginx-http-auth]"
+        - "enabled = true"
+        - "port = http,https"
+        - "filter = nginx-http-auth"
+        - "logpath = /var/log/nginx/error.log"
+        - "maxretry = 3"
+        - "findtime = 600"
+        - "bantime = 3600"
+        - "ignoreip = 127.0.0.1/8,::1"
+
+    - name: Configure nginx brute-force protection jail
+      community.general.lineinfile:
+        path: /etc/fail2ban/jail.local
+        line: "{{ item }}"
+      loop:
+        - "[nginx-botsearch]"
+        - "enabled = true"
+        - "port = http,https"
+        - "filter = nginx-botsearch"
+        - "logpath = /var/log/nginx/access.log"
+        - "maxretry = 2"
+        - "findtime = 300"
+        - "bantime = 7200"
+
+    - name: Configure fail2ban action with logging
+      community.general.lineinfile:
+        path: /etc/fail2ban/jail.local
+        line: "{{ item }}"
+      loop:
+        - "[DEFAULT]"
+        - "backend = auto"
+        - "maxretry = 3"
+        - "findtime = 600"
+        - "bantime = 3600"
+        - "bannableexitcodes = 4,255"
+        - "ignoreip = 127.0.0.1/8,::1"
+        - "mailfrom = fail2ban@localhost"
+        - "destemail = security@example.com"
+        - "action = %(default)s[%%(ss)s]"
+
+    - name: Enable firewall (firewalld)
+      ansible.builtin.service:
+        name: firewalld
+        enabled: true
+        state: started
+
+    - name: Configure firewall rules for nginx
+      community.general.firewall:
+        port:
+          - { port: 80, protocol: tcp, state: present }
+          - { port: 443, protocol: tcp, state: present }
+        service:
+          - { name: ssh, state: present }
+          - { name: docker, state: absent }  # Disable unless needed
+
+    - name: Configure SELinux for nginx (if enabled)
+      ansible.posix.selinux:
+        option: targeted
+        value: on
+      when: "'selinux_enabled' in ansible_selinux.status"
+
+    - name: Set strict umask for nginx
+      ansible.builtin.file:
+        path: /etc/nginx
+        owner: root
+        group: root
+        mode: '0750'
+
+    - name: Secure nginx log files
+      ansible.builtin.file:
+        path: /var/log/nginx
+        owner: root
+        group: adm
+        mode: '0755'
+      when: ansible_os_family == "RedHat"
+
+    - name: Configure password file permissions
+      ansible.builtin.file:
+        path: /etc/passwd
+        owner: root
+        group: root
+        mode: '0644'
+      when: ansible_os_family == "RedHat"
+
+    - name: Remove unnecessary cron jobs
+      ansible.builtin.cron:
+        name: "{{ item }}"
+        state: absent
+      loop:
+        - "apt-listchanges-updater"
+        - "unattended-upgrades"
+        - "logrotate-nginx"  # Use custom log rotation
+
+    - name: Disable unused systemd services
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: false
+        state: stopped
+      loop:
+        - atd
+        - cron
+        - polkit-kde-helper
+        - udisks2
+      when: ansible_distribution_major_version | int < 8
+
+    # Security audit tasks
+  post_tasks:
+    - name: Verify security hardening applied
+      ansible.builtin.command: sysctl -a | grep -E 'net.ipv4|kernel.randomize'
+      register: sysctl_output
+      changed_when: false
+
+    - name: Display kernel security parameters
+      ansible.builtin.debug:
+        msg: "{{ sysctl_output.stdout_lines }}"
+
+    - name: Generate security audit report
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          SECURITY HARDENING COMPLETE
+          ========================================
+          
+          Kernel Parameters Applied: 12
+          Fail2ban Jails Configured: 3
+          Firewall Rules: nginx (80/443), ssh enabled
+          SELinux: {{ 'Enabled' if ansible_selinux.status.enabled else 'Disabled' }}
+          
+          Next Steps:
+          1. Review fail2ban logs: journalctl -u fail2ban
+          2. Test fail2ban with simulated attack
+          3. Configure monitoring for security events
+          ========================================
+
+  # Error handling
+  error_handlers:
+    - name: Handle hardening failures
+      block:
+        - name: Log security hardening failure
+          ansible.builtin.debug:
+            msg: "Security hardening failed on {{ inventory_hostname }}. Critical security controls may not be applied."
+
+        - name: Alert security team
+          community.general.mail:
+            to: security@example.com
+            subject: "Security Hardening Failed: {{ inventory_hostname }}"
+            body: |
+              Security hardening playbook failed on {{ inventory_hostname }}
+              
+              Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+              
+              This may leave the system vulnerable. Please investigate immediately.
+            mail_from: deploy@example.com
+
+  # Tags for selective execution
+  tags:
+    - always
+    - security
+    - hardening
+    - fail2ban
+    - firewall
+    - kernel

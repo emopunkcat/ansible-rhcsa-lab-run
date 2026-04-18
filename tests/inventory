@@ -1,0 +1,17 @@
+[cluster]
+localhost ansible_connection=local ansible_python_interpreter=/usr/bin/python3
+
+[monitoring]
+localhost ansible_connection=local ansible_python_interpreter=/usr/bin/python3
+
+[log_aggregation]
+localhost ansible_connection=local ansible_python_interpreter=/usr/bin/python3
+
+[backend]
+localhost ansible_connection=local ansible_python_interpreter=/usr/bin/python3
+
+[secrets]
+localhost ansible_connection=local ansible_python_interpreter=/usr/bin/python3
+
+all:
+  children: cluster, monitoring, log_aggregation, backend, secrets

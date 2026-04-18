@@ -1,0 +1,28 @@
+---
+namespace: emopunkcat
+name: rhcsa_lab_runner
+version: 1.0.0
+readme: README.md
+authors:
+  - Jeremy Johann <emopunkcat@github.com>
+description: Enterprise-grade Ansible playbook suite for RHEL 9 security hardening, monitoring, and Nginx reverse proxy deployment
+license:
+  - MIT
+tags:
+  - rhel9
+  - nginx
+  - security
+  - monitoring
+  - ansible
+  - ansible-lint
+  - cis-benchmark
+dependencies:
+  community.general: ">=5.0.0"
+  ansible.posix: ">=1.5.0"
+repository: https://github.com/emopunkcat/ansible-rhcsa-lab-runner
+documentation: https://github.com/emopunkcat/ansible-rhcsa-lab-runner/blob/main/README.md
+homepage: https://github.com/emopunkcat/ansible-rhcsa-lab-runner
+issues: https://github.com/emopunkcat/ansible-rhcsa-lab-runner/issues
+build_ignore:
+  - ".github"
+  - "*.tar.gz"

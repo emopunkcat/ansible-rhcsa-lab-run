@@ -1,0 +1,176 @@
+---
+# Ansible RHEL9 Cluster Security Playbooks - Main Orchestration Playbook
+# Deploy hardened Nginx reverse proxy cluster with security logging and health monitoring
+
+- name: Deploy Nginx Reverse Proxy Cluster
+  hosts: cluster
+  become: true
+  vars_files:
+    - ../inventory.ini  # Load inventory-specific variables if present
+  environment:
+    ANSIBLE_CALLBACK_PLUGINS: community.general.profile_tasks
+  strategy: linear
+  serial: 1
+  max_fail_percentage: 25
+  any_errors_fatal: false
+
+  # Pre-flight checks
+  pre_tasks:
+    - name: Verify Ansible version compatibility
+      ansible.builtin.fail:
+        msg: "Ansible 2.9+ required, found {{ ansible_version.full_version }}"
+      when: ansible_version.full_version is version_compare('2.9', '<')
+
+    - name: Gather package facts
+      ansible.builtin.package_facts:
+        manager: auto
+
+    - name: Check disk space before deployment
+      community.general.disk:
+        path: /var
+      register: disk_check
+      when: ansible_os_family == "RedHat"
+
+    - name: Warn if disk space is low
+      ansible.builtin.debug:
+        msg: "Low disk space on {{ item.mount }}: {{ item.used_pct }}% used (min 80%)"
+      loop: "{{ disk_check.disks }}"
+      when:
+        - disk_check.disks is defined
+        - item.used_pct is defined
+        - item.used_pct | float >= 80
+
+    - name: Create deployment log directory
+      ansible.builtin.file:
+        path: /var/log/nginx-deploy
+        state: directory
+        mode: '0750'
+        owner: root
+        group: root
+
+  # Main deployment tasks
+  tasks:
+    - name: Install base packages
+      ansible.builtin.dnf:
+        name:
+          - nginx
+          - fail2ban
+          - python3-prometheus-client
+          - python3-psutil
+          - python3-jsonschema
+          - openssl
+          - ca-certificates
+          - curl
+          - wget
+          - git
+          - vim
+          - inotify-tools
+        state: present
+      register: package_install_result
+
+    - name: Ensure nginx service is enabled and started
+      ansible.builtin.systemd:
+        name: nginx
+        enabled: true
+        state: started
+      when: package_install_result.changed or ansible_facts['distribution'] == 'Rocky'
+
+    - name: Configure nginx as reverse proxy
+      community.general.nginx:
+        dest: /etc/nginx/nginx.conf
+        template: ../roles/nginx-reverse-proxy/templates/nginx.conf.j2
+        owner: root
+        group: root
+        mode: '0644'
+        state: present
+
+    - name: Include security hardening playbook
+      ansible.builtin.include_role:
+        name: security-hardening
+      tags: security
+
+    - name: Deploy monitoring stack
+      ansible.builtin.include_role:
+        name: monitoring-setup
+      tags: monitoring
+
+    - name: Configure nginx reverse proxy role
+      ansible.builtin.include_role:
+        name: nginx-reverse-proxy
+      tags: nginx
+
+    - name: Verify nginx configuration syntax
+      community.general.nginx:
+        state: reloaded
+      register: nginx_reload_result
+
+    - name: Log nginx reload result
+      ansible.builtin.debug:
+        msg: "Nginx {{ 'reloaded' if nginx_reload_result.changed else 'already optimal' }}"
+
+    # Post-deployment validation
+  post_tasks:
+    - name: Verify nginx is running
+      ansible.builtin.service_facts:
+      register: service_facts
+
+    - name: Fail if nginx not running
+      ansible.builtin.fail:
+        msg: "Nginx service is not running after deployment"
+      when:
+        - "'nginx' in service_facts.services"
+        - service_facts.services['nginx'].state != 'running'
+
+    - name: Test nginx connectivity
+      ansible.builtin.uri:
+        url: "http://localhost/"
+        return_content: true
+      register: health_check
+      failed_when: false
+
+    - name: Log health check result
+      ansible.builtin.debug:
+        msg: "Health check {{ 'passed' if health_check.status == 200 else 'failed' }} (status: {{ health_check.status | default('N/A') }})"
+
+    - name: Generate deployment summary
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          DEPLOYMENT COMPLETE
+          ========================================
+          Hosts processed: {{ inventory_hostname }}
+          Ansible version: {{ ansible_version.full_version }}
+          OS: {{ ansible_distribution }} {{ ansible_distribution_major_version }}
+          Nginx status: {{ 'RUNNING' if service_facts.services['nginx'].state == 'running' else 'STOPPED' }}
+          ========================================
+
+  # Error handling
+  error_handlers:
+    - name: Handle deployment failures
+      block:
+        - name: Log failure details
+          ansible.builtin.debug:
+            msg: "Deployment failed on {{ inventory_hostname }}. Check /var/log/nginx-deploy/error.log for details."
+
+        - name: Send alert to monitoring
+          community.general.mail:
+            to: admin@example.com
+            subject: "Ansible Deployment Failed: {{ inventory_hostname }}"
+            body: |
+              Deployment failed on {{ inventory_hostname }}
+              
+              Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+              
+              Please check /var/log/nginx-deploy/error.log for more details.
+            mail_from: deploy@example.com
+
+  # Tags for selective execution
+  tags:
+    - always
+    - nginx
+    - security
+    - monitoring
+    - deployment
+
+  # Vault configuration (optional)
+  vault_password_file: /etc/ansible/vault_pass.txt  # Uncomment if using vault

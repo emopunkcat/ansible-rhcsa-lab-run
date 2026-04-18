@@ -1,0 +1,7 @@
+---
+# Handlers for security-hardening role
+
+- name: Reload fail2ban
+  ansible.builtin.systemd:
+    name: fail2ban
+    state: reloaded

@@ -1,0 +1,174 @@
+---
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  ANSIBLE_COLLECTIONS_PATHS: "{{ github.workspace }}/collections"
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  lint:
+    name: Ansible Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Ansible and collections
+        run: |
+          pip install ansible ansible-lint yamllint
+          ansible-galaxy collection install -r requirements.yml
+
+      - name: Run ansible-lint
+        run: ansible-lint playbooks/ roles/ --strict
+
+      - name: Run yamllint
+        run: yamllint -d relaxed playbooks/ roles/ inventory.ini
+
+  syntax:
+    name: Ansible Syntax Check
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Ansible and collections
+        run: |
+          pip install ansible
+          ansible-galaxy collection install -r requirements.yml
+
+      - name: Run syntax check on site.yml
+        run: ansible-playbook playbooks/site.yml --syntax-check -i inventory.ini
+
+      - name: Run syntax check on security-hardening.yml
+        run: ansible-playbook playbooks/security-hardening.yml --syntax-check -i inventory.ini
+
+      - name: Run syntax check on monitoring-setup.yml
+        run: ansible-playbook playbooks/monitoring-setup.yml --syntax-check -i inventory.ini
+
+  test:
+    name: PyTest Unit Tests
+    runs-on: ubuntu-latest
+    needs: [syntax]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run pytest
+        run: pytest tests/ -v --tb=short
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: .coverage
+          retention-days: 7
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install security tools
+        run: pip install bandit safety
+
+      - name: Run bandit (Python security scanner)
+        run: bandit -r roles/ tests/ -ll -lll
+
+      - name: Run safety check on dependencies
+        run: safety check -r requirements.txt || true
+
+  format:
+    name: Code Formatting
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install formatting tools
+        run: pip install black flake8
+
+      - name: Check Python formatting with black
+        run: black --check roles/ tests/
+
+      - name: Check Python style with flake8
+        run: flake8 roles/ tests/ --max-line-length=120 --ignore=E501,W503
+
+  docs:
+    name: Documentation Validation
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install markdownlint
+        run: npm install -g markdownlint-cli
+
+      - name: Validate README.md
+        run: markdownlint-cli README.md
+
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [security, format, docs]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: staging
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Ansible and collections
+        run: |
+          pip install ansible
+          ansible-galaxy collection install -r requirements.yml
+
+      - name: Deploy to staging hosts
+        run: |
+          ansible-playbook playbooks/site.yml -i inventory.ini --check --diff
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: "false"

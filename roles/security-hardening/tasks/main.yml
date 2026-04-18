@@ -1,0 +1,131 @@
+---
+# Security hardening role tasks
+# Applies kernel parameters, fail2ban jails, firewall rules, SELinux, and service hardening
+
+- name: Install fail2ban
+  ansible.builtin.package:
+    name: fail2ban
+    state: present
+  when: fail2ban_enabled
+
+- name: Create fail2ban jail configuration directory
+  ansible.builtin.file:
+    path: /etc/fail2ban/jail.d
+    state: directory
+    mode: "0750"
+    owner: root
+    group: root
+
+- name: Configure nginx fail2ban jail
+  community.general.lineinfile:
+    path: /etc/fail2ban/jail.local
+    line: "{{ item }}"
+  loop:
+    - "[nginx-http-auth]"
+    - "enabled = true"
+    - "port = http,https"
+    - "filter = nginx-http-auth"
+    - "logpath = /var/log/nginx/error.log"
+    - "maxretry = {{ fail2ban_maxretry }}"
+    - "findtime = {{ fail2ban_findtime }}"
+    - "bantime = {{ fail2ban_bantime }}"
+    - "ignoreip = 127.0.0.1/8,::1"
+  when: fail2ban_enabled
+
+- name: Configure nginx brute-force protection jail
+  community.general.lineinfile:
+    path: /etc/fail2ban/jail.local
+    line: "{{ item }}"
+  loop:
+    - "[nginx-botsearch]"
+    - "enabled = true"
+    - "port = http,https"
+    - "filter = nginx-botsearch"
+    - "logpath = /var/log/nginx/access.log"
+    - "maxretry = 2"
+    - "findtime = 300"
+    - "bantime = 7200"
+    - "ignoreip = 127.0.0.1/8,::1"
+  when: fail2ban_enabled
+
+- name: Configure fail2ban defaults
+  community.general.lineinfile:
+    path: /etc/fail2ban/jail.local
+    line: "{{ item }}"
+  loop:
+    - "[DEFAULT]"
+    - "backend = auto"
+    - "maxretry = {{ fail2ban_maxretry }}"
+    - "findtime = {{ fail2ban_findtime }}"
+    - "bantime = {{ fail2ban_bantime }}"
+    - "bannableexitcodes = 4,255"
+    - "ignoreip = 127.0.0.1/8,::1"
+  when: fail2ban_enabled
+
+- name: Enable and start fail2ban
+  ansible.builtin.systemd:
+    name: fail2ban
+    enabled: true
+    state: started
+  when: fail2ban_enabled
+  notify: Reload fail2ban
+
+- name: Configure secure kernel parameters
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/99-nginx-security.conf
+    state: present
+    reload: true
+  loop: "{{ kernel_parameters | dict2items }}"
+  when: ansible_os_family == "RedHat"
+
+- name: Enable and start firewalld
+  ansible.builtin.systemd:
+    name: firewalld
+    enabled: true
+    state: started
+  when: firewall_enabled
+
+- name: Configure firewall rules
+  community.general.firewall:
+    port: "{{ item.port }}/{{ item.protocol }}"
+    state: present
+  loop: "{{ firewall_ports }}"
+  when: firewall_enabled
+
+- name: Disable Docker service in firewall
+  community.general.firewall:
+    service: docker
+    state: absent
+  when: firewall_enabled
+
+- name: Configure SELinux
+  ansible.posix.selinux:
+    policy: targeted
+    state: "{{ selinux_mode }}"
+  when: selinux_enabled and (ansible_selinux.status is not defined or ansible_selinux.status.enabled is not defined)
+
+- name: Set strict umask for nginx config directory
+  ansible.builtin.file:
+    path: "{{ nginx_config_dir }}"
+    owner: root
+    group: root
+    mode: "{{ nginx_config_mode }}"
+  when: ansible_os_family == "RedHat"
+
+- name: Secure nginx log directory
+  ansible.builtin.file:
+    path: "{{ nginx_log_dir }}"
+    owner: root
+    group: adm
+    mode: "{{ nginx_log_mode }}"
+  when: ansible_os_family == "RedHat"
+
+- name: Disable unused systemd services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+  loop: "{{ disable_services }}"
+  when: ansible_distribution_major_version | int < 8

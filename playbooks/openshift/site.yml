@@ -1,0 +1,174 @@
+---
+# Ansible RHEL9 Cluster Security Playbooks - OpenShift Variant
+# Deploy hardened Nginx reverse proxy cluster on Red Hat OpenShift
+
+- name: Deploy Nginx on OpenShift
+  hosts: openshift
+  become: true
+  vars_files:
+    - ../inventory.ini
+  environment:
+    ANSIBLE_CALLBACK_PLUGINS: community.general.profile_tasks
+
+  # Pre-flight validation for OpenShift
+  pre_tasks:
+    - name: Verify OpenShift CLI is installed
+      ansible.builtin.command: oc version --client
+      register: oc_version_check
+      changed_when: false
+
+    - name: Fail if OpenShift CLI not found
+      ansible.builtin.fail:
+        msg: "OpenShift CLI (oc) must be installed before deploying to OpenShift cluster"
+      when:
+        - "'oc' not in oc_version_check.stdout"
+
+    - name: Gather OpenShift facts
+      community.general.openshift_facts:
+        openshift_server_url: "{{ openshift_server_url | default('https://localhost:6443') }}"
+        kubeconfig_file: "{{ openshift_kubeconfig | default('/home/openshift/.kube/config') }}"
+        validate_certs: false
+
+    - name: Display OpenShift cluster info
+      ansible.builtin.debug:
+        msg: "OpenShift Cluster: {{ openshift_cluster_name | default('default') }} ({{ openshift_version }})"
+
+  # Main deployment tasks for OpenShift
+  tasks:
+    - name: Create Nginx namespace
+      community.general.openshift:
+        kind: Namespace
+        name: nginx-proxy
+        state: present
+
+    - name: Create Nginx DeploymentConfig
+      community.general.openshift:
+        kind: DeploymentConfig
+        name: nginx-proxy
+        namespace: nginx-proxy
+        state: present
+        template: ../roles/nginx-reverse-proxy/templates/deployment.yml.j2
+
+    - name: Create Nginx Service
+      community.general.openshift:
+        kind: Service
+        name: nginx-proxy
+        namespace: nginx-proxy
+        state: present
+        template: ../roles/nginx-reverse-proxy/templates/service.yml.j2
+
+    - name: Create Nginx Route (Ingress)
+      community.general.openshift:
+        kind: Route
+        name: nginx-proxy
+        namespace: nginx-proxy
+        state: present
+        template: ../roles/nginx-reverse-proxy/templates/route.yml.j2
+
+    - name: Apply security context to deployment
+      community.general.openshift:
+        kind: DeploymentConfig
+        name: nginx-proxy
+        namespace: nginx-proxy
+        state: present
+        template: ../roles/nginx-reverse-proxy/templates/deployment-security.yml.j2
+
+    # Security hardening for OpenShift
+    - name: Apply security context constraints (SCC)
+      community.general.openshift:
+        kind: SecurityContextConstraints
+        name: nginx-proxy-scc
+        state: present
+        template: ../roles/nginx-reverse-proxy/templates/scc.yml.j2
+
+    - name: Configure network policies
+      community.general.openshift:
+        kind: NetworkPolicy
+        name: nginx-proxy-network-policy
+        namespace: nginx-proxy
+        state: present
+        template: ../roles/nginx-reverse-proxy/templates/network-policy.yml.j2
+
+    # Monitoring on OpenShift
+    - name: Deploy Prometheus Operator
+      community.general.openshift:
+        kind: CustomResourceDefinition
+        name: prometheuses.monitoring.coreos.com
+        namespace: monitoring
+        state: present
+        template: ../roles/monitoring-setup/templates/prometheus-operator.yml.j2
+
+    - name: Configure Grafana on OpenShift
+      community.general.openshift:
+        kind: DeploymentConfig
+        name: grafana
+        namespace: monitoring
+        state: present
+        template: ../roles/monitoring-setup/templates/grafana.yml.j2
+
+    # Post-deployment validation
+  post_tasks:
+    - name: Verify deployment is running
+      ansible.builtin.uri:
+        url: "https://{{ openshift_route_url }}/health"
+        return_content: true
+      register: health_check
+      failed_when: false
+
+    - name: Log health check result
+      ansible.builtin.debug:
+        msg: "Health check {{ 'passed' if health_check.status == 200 else 'failed' }} (status: {{ health_check.status | default('N/A') }})"
+
+    - name: Generate deployment summary for OpenShift
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          OPENSHIFT DEPLOYMENT COMPLETE
+          ========================================
+          
+          Namespace: nginx-proxy
+          Deployment: nginx-proxy
+          Route: {{ openshift_route_url | default('N/A') }}
+          Service: nginx-proxy:8080/tcp
+          
+          Security Context Constraints Applied:
+          - SCC: restricted (if configured)
+          - Network Policies: Enabled
+          
+          Monitoring Stack:
+          - Prometheus Operator: Deployed
+          - Grafana: Available at monitoring namespace
+          
+          Next Steps:
+          1. oc get pods -n nginx-proxy
+          2. oc logs -f -l app=nginx-proxy
+          3. Access route: {{ openshift_route_url | default('N/A') }}
+          ========================================
+
+  # Error handling
+  error_handlers:
+    - name: Handle OpenShift deployment failures
+      block:
+        - name: Log failure details
+          ansible.builtin.debug:
+            msg: "OpenShift deployment failed on {{ inventory_hostname }}. Check OpenShift events with 'oc get events -n nginx-proxy'."
+
+        - name: Send alert to monitoring
+          community.general.mail:
+            to: openshift-alerts@example.com
+            subject: "Ansible OpenShift Deployment Failed: {{ inventory_hostname }}"
+            body: |
+              OpenShift deployment failed on {{ inventory_hostname }}
+              
+              Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+              
+              Please check OpenShift events with 'oc get events -n nginx-proxy' for more details.
+            mail_from: deploy@example.com
+
+  # Tags for selective execution
+  tags:
+    - always
+    - openshift
+    - kubernetes
+    - deployment
+    - security

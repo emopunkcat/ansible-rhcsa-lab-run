@@ -1,0 +1,14 @@
+---
+# Handlers for nginx-reverse-proxy role
+
+- name: Restart nginx
+  ansible.builtin.systemd:
+    name: nginx
+    state: restarted
+  listen: "nginx restart"
+
+- name: Reload nginx
+  ansible.builtin.systemd:
+    name: nginx
+    state: reloaded
+  listen: "nginx reload"

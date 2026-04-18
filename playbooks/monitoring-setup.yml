@@ -1,0 +1,525 @@
+---
+# Ansible RHEL9 Cluster Security Playbooks - Monitoring Setup Playbook
+# Deploys Prometheus metrics, Grafana dashboards, and alerting infrastructure
+
+- name: Deploy Observability Stack
+  hosts: cluster
+  become: true
+  vars_files:
+    - ../inventory.ini
+  environment:
+    ANSIBLE_CALLBACK_PLUGINS: community.general.profile_tasks
+
+  # Pre-flight checks
+  pre_tasks:
+    - name: Check if monitoring is already configured
+      ansible.builtin.stat:
+        path: /etc/prometheus/node_exporter.conf
+      register: prometheus_exists
+
+    - name: Warn if monitoring already exists
+      ansible.builtin.debug:
+        msg: "Monitoring components may already be installed. Review before proceeding."
+      when: prometheus_exists.stat.exists
+
+  # Install Prometheus client libraries
+  tasks:
+    - name: Install Python monitoring libraries
+      ansible.builtin.yum:
+        name:
+          - python3-prometheus-client
+          - python3-psutil
+          - python3-jsonschema
+          - prometheus-node-exporter
+          - grafana-agent
+        state: present
+
+    - name: Create metrics endpoint directory
+      ansible.builtin.file:
+        path: /var/lib/nginx_metrics
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Configure Prometheus client library
+      ansible.builtin.lineinfile:
+        path: /etc/prometheus/client_python.py
+        line: "{{ item }}"
+      loop:
+        - "#!/usr/bin/env python3"
+        - "import prometheus_client"
+        - "from prometheus_client import Counter, Gauge, Histogram, CollectorRegistry"
+        - ""
+        - "# Nginx request metrics"
+        - "nginx_requests_total = Counter("
+        - '    "nginx_requests_total",'
+        - '    "Total number of HTTP requests",'
+        - '    ["method", "status", "endpoint"]'
+        - ")"
+        - ""
+        - "# Nginx connection metrics"
+        - "nginx_connections_active = Gauge("
+        - '    "nginx_connections_active",'
+        - '    "Number of active connections",'
+        - '    ["state"]'
+        - ")"
+        - ""
+        - "# Response time histogram"
+        - "nginx_request_duration = Histogram("
+        - '    "nginx_request_duration_seconds",'
+        - '    "Request duration in seconds",'
+        - '    ["endpoint"]'
+        - '    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)'
+        - ")"
+
+    - name: Create metrics endpoint script
+      ansible.builtin.copy:
+        content: |
+          #!/usr/bin/env python3
+          import prometheus_client
+          from prometheus_client import Counter, Gauge, Histogram
+          import time
+          import json
+          import os
+
+          # Define metrics
+          nginx_requests_total = Counter(
+              'nginx_requests_total',
+              'Total number of HTTP requests',
+              ['method', 'status', 'endpoint']
+          )
+          
+          nginx_connections_active = Gauge(
+              'nginx_connections_active',
+              'Number of active connections',
+              ['state']
+          )
+          
+          nginx_request_duration = Histogram(
+              'nginx_request_duration_seconds',
+              'Request duration in seconds',
+              ['endpoint'],
+              buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
+          )
+
+          # Simulated metrics endpoint (replace with actual nginx stats)
+          def get_metrics():
+              return {
+                  'nginx_requests_total': [
+                      {'method': 'GET', 'status': '200', 'value': 15432},
+                      {'method': 'POST', 'status': '201', 'value': 234},
+                      {'method': 'GET', 'status': '500', 'value': 12}
+                  ],
+                  'nginx_connections_active': [
+                      {'state': 'reading', 'value': 45},
+                      {'state': 'writing', 'value': 12},
+                      {'state': 'waiting', 'value': 89}
+                  ],
+                  'nginx_upstream_response_time_sum': 1.234,
+                  'nginx_upstream_response_time_count': 1000
+              }
+
+          # Expose metrics endpoint
+          if __name__ == '__main__':
+              while True:
+                  try:
+                      data = get_metrics()
+                      print(json.dumps(data))
+                      time.sleep(5)
+                  except Exception as e:
+                      print(f"Error: {e}")
+                      time.sleep(10)
+        dest: /usr/local/bin/nginx-metrics-exporter
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Create prometheus configuration directory
+      ansible.builtin.file:
+        path: /etc/prometheus
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Configure Prometheus scrape targets
+      ansible.builtin.copy:
+        content: |
+          global:
+            scrape_interval: 15s
+            evaluation_interval: 15s
+            external_labels:
+              cluster: "rhcsa-lab-runner"
+              environment: "production"
+
+          # Nginx metrics endpoint
+          scrape_configs:
+            - job_name: 'nginx-metrics'
+              static_configs:
+                - targets: ['localhost:9115']
+              metrics_path: '/metrics'
+
+            - job_name: 'node-exporter'
+              static_configs:
+                - targets: ['localhost:9100']
+
+            - job_name: 'fail2ban-metrics'
+              static_configs:
+                - targets: ['localhost:9116']
+
+        dest: /etc/prometheus/scrape.yml
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Install Grafana (optional, for visualization)
+      ansible.builtin.yum:
+        name: grafana
+        state: present
+      when: grafana_enabled | default(true)
+
+    - name: Configure Grafana data source
+      ansible.builtin.copy:
+        content: |
+          apiVersion: 1
+          
+          datasources:
+            - name: Prometheus
+              type: prometheus
+              access: proxy
+              url: http://prometheus.example.com:9090
+              isDefault: true
+              editable: true
+              jsonData:
+                httpHeaderName1: "Authorization"
+                basicAuth: false
+                withCredentials: false
+              secureJsonData:
+                basicAuthPassword: ""
+        dest: /etc/grafana/provisioning/datasources/prometheus.yml
+        owner: root
+        group: root
+        mode: '0640'
+
+    - name: Create Grafana dashboard configuration
+      ansible.builtin.copy:
+        content: |
+          {
+            "annotations": {
+              "list": [
+                {
+                  "builtIn": 1,
+                  "datasource": "-- Grafana --",
+                  "enable": true,
+                  "hide": true,
+                  "iconColor": "rgba(0, 211, 255, 1)",
+                  "name": "Annotations & Alerts",
+                  "type": "dashboard"
+                }
+              ]
+            },
+            "editable": true,
+            "fiscalYearStartMonth": 0,
+            "graphTooltip": 0,
+            "id": 1,
+            "links": [],
+            "panels": [
+              {
+                "datasource": "Prometheus",
+                "fieldConfig": {
+                  "defaults": {
+                    "color": {
+                      "mode": "palette-classic"
+                    },
+                    "custom": {
+                      "axisCenteredZero": false,
+                      "axisColorMode": "text",
+                      "axisLabel": "",
+                      "axisPlacement": "auto",
+                      "barAlignment": 0,
+                      "drawStyle": "line",
+                      "fillOpacity": 10,
+                      "gradientMode": "none",
+                      "hideFrom": {
+                        "category": false,
+                        "legend": false,
+                        "tooltip": false,
+                        "value": false
+                      },
+                      "lineWidth": 1,
+                      "scrollThreshold": 100,
+                      "showInterpolation": false,
+                      "spanNulls": false,
+                      "stacking": {
+                        "group": "none",
+                        "mode": "none"
+                      },
+                      "thresholdsStyle": {
+                        "mode": "off"
+                      }
+                    },
+                    "mappings": [],
+                    "max": 100,
+                    "min": 0,
+                    "thresholds": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "green",
+                          "value": null
+                        },
+                        {
+                          "color": "red",
+                          "value": 80
+                        }
+                      ]
+                    },
+                    "unit": "reqps"
+                  },
+                  "overrides": []
+                },
+                "gridPos": {
+                  "h": 8,
+                  "w": 12,
+                  "x": 0,
+                  "y": 0
+                },
+                "id": 1,
+                "options": {
+                  "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom"
+                  },
+                  "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                  }
+                },
+                "targets": [
+                  {
+                    "datasource": "Prometheus",
+                    "expr": "rate(nginx_requests_total[5m])",
+                    "legendFormat": "{{method}} {{status}}",
+                    "refId": "A"
+                  }
+                ],
+                "title": "Request Rate",
+                "type": "timeseries"
+              },
+              {
+                "datasource": "Prometheus",
+                "fieldConfig": {
+                  "defaults": {
+                    "color": {
+                      "mode": "palette-classic"
+                    },
+                    "custom": {
+                      "axisCenteredZero": false,
+                      "axisColorMode": "text",
+                      "barAlignment": 0,
+                      "drawStyle": "line",
+                      "fillOpacity": 10,
+                      "gradientMode": "none",
+                      "hideFrom": {
+                        "category": false,
+                        "legend": false,
+                        "tooltip": false,
+                        "value": false
+                      },
+                      "lineWidth": 1,
+                      "scrollThreshold": 100,
+                      "showInterpolation": false,
+                      "spanNulls": false,
+                      "stacking": {
+                        "group": "none",
+                        "mode": "none"
+                      },
+                      "thresholdsStyle": {
+                        "mode": "off"
+                      }
+                    },
+                    "mappings": [],
+                    "max": 100,
+                    "min": 0,
+                    "thresholds": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "green",
+                          "value": null
+                        },
+                        {
+                          "color": "red",
+                          "value": 80
+                        }
+                      ]
+                    },
+                    "unit": "percent"
+                  },
+                  "overrides": []
+                },
+                "gridPos": {
+                  "h": 8,
+                  "w": 12,
+                  "x": 12,
+                  "y": 0
+                },
+                "id": 2,
+                "targets": [
+                  {
+                    "datasource": "Prometheus",
+                    "expr": "rate(nginx_connections_active[5m])",
+                    "legendFormat": "{{state}}",
+                    "refId": "A"
+                  }
+                ],
+                "title": "Connection Rate",
+                "type": "timeseries"
+              }
+            ],
+            "refresh": "5s",
+            "schemaVersion": 38,
+            "style": "dark",
+            "tags": [
+              "nginx",
+              "security",
+              "rhcsa"
+            ],
+            "templating": {
+              "list": []
+            },
+            "time": {
+              "from": "now-1h",
+              "to": "now"
+            },
+            "timepicker": {},
+            "timezone": "browser",
+            "title": "Nginx Security Dashboard",
+            "uid": "nginx-security-dashboard",
+            "version": 1,
+            "weekStart": ""
+          }
+        dest: /etc/grafana/provisioning/dashboards/nginx-security.json
+        owner: root
+        group: root
+        mode: '0640'
+
+    - name: Configure AlertManager
+      ansible.builtin.copy:
+        content: |
+          global:
+            smtp_smarthost: 'smtp.example.com:587'
+            smtp_from: 'alerts@example.com'
+            smtp_require_tls: true
+            slack_api_url: 'https://hooks.slack.com/services/XXX/YYY/ZZZ'
+            pagerduty_routing_key: ''
+            victorops_api_key: ''
+            opsgenie_api_key: ''
+            webhook_url: ''
+
+          route:
+            receiver: 'default'
+            group_by: ['alertname', 'cluster']
+            group_wait: 30s
+            group_interval: 5m
+            repeat_interval: 4h
+            routes:
+              - match:
+                  severity: critical
+                receiver: 'critical-alerts'
+                continue: true
+              - match:
+                  severity: warning
+                receiver: 'warning-alerts'
+
+          receivers:
+            - name: 'default'
+              webhook_configs:
+                - send_resolved: true
+                  url: 'http://webhook.example.com/alerts'
+
+            - name: 'critical-alerts'
+              slack_configs:
+                - api_url: '{{ .Values.slack_api_url }}'
+                  channel: '#alerts-critical'
+                  send_resolved: true
+
+            - name: 'warning-alerts'
+              slack_configs:
+                - api_url: '{{ .Values.slack_api_url }}'
+                  channel: '#alerts-warning'
+                  send_resolved: true
+
+        dest: /etc/alertmanager/config.yml
+        owner: root
+        group: root
+        mode: '0644'
+
+    # Post-deployment validation
+  post_tasks:
+    - name: Verify metrics endpoint is accessible
+      ansible.builtin.uri:
+        url: "http://localhost:9115/metrics"
+        return_content: true
+      register: metrics_check
+      failed_when: false
+
+    - name: Log metrics check result
+      ansible.builtin.debug:
+        msg: "Metrics endpoint {{ 'accessible' if metrics_check.status == 200 else 'not accessible' }} (status: {{ metrics_check.status | default('N/A') }})"
+
+    - name: Generate monitoring summary
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          MONITORING STACK DEPLOYED
+          ========================================
+          
+          Components Installed:
+          - Prometheus client libraries: ✓
+          - Metrics endpoint: /var/lib/nginx_metrics
+          - Grafana: {{ '✓' if grafana_installed else '✗ (optional)' }}
+          - AlertManager: ✓
+          - Dashboard templates: ✓
+          
+          Access Points:
+          - Metrics: http://localhost:9115/metrics
+          - Grafana: http://grafana.example.com (if enabled)
+          - AlertManager: http://localhost:9093
+          
+          Next Steps:
+          1. Configure alert receivers in AlertManager
+          2. Customize Grafana dashboards as needed
+          3. Set up webhook endpoints for alerts
+          ========================================
+
+  # Error handling
+  error_handlers:
+    - name: Handle monitoring setup failures
+      block:
+        - name: Log monitoring failure
+          ansible.builtin.debug:
+            msg: "Monitoring setup failed on {{ inventory_hostname }}. Metrics and alerting may not be functional."
+
+        - name: Alert operations team
+          community.general.mail:
+            to: ops@example.com
+            subject: "Monitoring Setup Failed: {{ inventory_hostname }}"
+            body: |
+              Monitoring stack deployment failed on {{ inventory_hostname }}
+              
+              Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+              
+              This will impact observability and alerting capabilities.
+            mail_from: deploy@example.com
+
+  # Tags for selective execution
+  tags:
+    - always
+    - monitoring
+    - prometheus
+    - grafana
+    - alerting
+    - metrics

@@ -1,0 +1,74 @@
+---
+# Nginx Reverse Proxy Role - Default Variables
+# Customize these variables in inventory or playbooks as needed
+
+# Server configuration
+server_name: "localhost"
+
+# SSL Configuration
+ssl_enabled: true
+ssl_certificate: "/etc/nginx/ssl/cert.pem"
+ssl_key: "/etc/nginx/ssl/key.pem"
+ssl_chain: "/etc/nginx/ssl/chain.pem"
+hsts_max_age: 31536000
+
+# Rate Limiting
+rate_limit_burst: 20
+api_rate_limit_burst: 10
+rate_limit_zone_size: "10m"
+rate_limit_requests_per_minute: 60
+api_rate_limit_requests_per_minute: 30
+
+# Proxy settings
+proxy_connect_timeout: 60
+proxy_send_timeout: 60
+proxy_read_timeout: 60
+proxy_buffering: true
+proxy_buffer_size: "4k"
+proxy_buffers: "8 4k"
+
+# CORS (for API endpoints)
+cors_origin: "*"  # Set to specific domain in production
+
+# Static files
+static_files_path: "/var/www/static/"
+
+# Monitoring
+enable_metrics: false
+metrics_port: 9115
+metrics_path: "/metrics"
+
+# Geo-blocking (customize based on compliance requirements)
+blocked_countries:
+  - RU
+  - CN
+  - IR
+  - KP
+  - SY
+  - CU
+  - VN
+  - MM
+
+# WAF settings
+waf_enabled: true
+waf_rules_path: "/etc/nginx/waf/rules.conf"
+geo_blocking_path: "/etc/nginx/waf/geo-blocking.conf"
+
+# Security headers (all enabled by default)
+security_headers:
+  x_frame_options: "SAMEORIGIN"
+  x_content_type_options: "nosniff"
+  x_xss_protection: "1; mode=block"
+  referrer_policy: "strict-origin-when-cross-origin"
+  content_security_policy: "default-src 'self'"
+  strict_transport_security: "max-age=31536000; includeSubDomains"
+  permissions_policy: "geolocation=(), microphone=(), camera=()"
+
+# Fail2ban integration
+fail2ban_enabled: true
+fail2ban_log_path: "/var/log/nginx/error.log"
+
+# Logging
+access_log_path: "/var/log/nginx/access.log"
+error_log_path: "/var/log/nginx/error.log"
+log_format: "main"

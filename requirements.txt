@@ -1,0 +1,27 @@
+# Core Ansible dependencies
+ansible-core>=2.14.0,<3.0.0
+
+# Jinja2 templating engine
+jinja2>=3.1.0
+
+# YAML validation and linting
+yamllint>=1.30.0
+ansible-lint>=6.0.0
+
+# Testing framework
+pytest>=7.4.0
+coverage>=7.0.0
+
+# Prometheus client library for metrics
+prometheus-client>=0.15.0
+
+# Optional: Security scanning tools
+bandit>=1.7.0
+
+# Optional: Documentation validation
+markdown-it-py>=2.2.0
+
+# Development tools
+black>=23.0.0  # Code formatting
+flake8>=6.0.0  # Code style checking
+mypy>=1.5.0    # Type checking

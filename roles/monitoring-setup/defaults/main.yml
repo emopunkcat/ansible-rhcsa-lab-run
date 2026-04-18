@@ -1,0 +1,21 @@
+---
+# Monitoring setup defaults
+prometheus_enabled: true
+prometheus_port: 9115
+prometheus_metrics_path: /metrics
+
+node_exporter_enabled: true
+node_exporter_port: 9100
+
+fail2ban_metrics_enabled: false
+fail2ban_metrics_port: 9116
+
+grafana_enabled: false
+grafana_port: 3000
+
+alertmanager_enabled: true
+alertmanager_port: 9093
+
+grafana_datasource_url: http://prometheus:9090
+slack_channel: "#alerts-critical"
+slack_api_url: "https://hooks.slack.com/services/XXX/YYY/ZZZ"

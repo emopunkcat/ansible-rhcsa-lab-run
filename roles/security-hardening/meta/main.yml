@@ -1,0 +1,20 @@
+---
+dependencies: []
+
+galaxy_info:
+  author: emopunkcat
+  description: Security hardening for RHEL 9 systems with fail2ban, firewall, kernel params, and SELinux
+  company: None
+  license: MIT
+  min_ansible_version: "2.9"
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+  galaxy_tags:
+    - rhel9
+    - security
+    - hardening
+    - fail2ban
+    - firewall
+    - selinux

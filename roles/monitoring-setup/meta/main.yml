@@ -1,0 +1,19 @@
+---
+dependencies: []
+
+galaxy_info:
+  author: emopunkcat
+  description: Monitoring stack deployment - Prometheus, Grafana, AlertManager for RHEL 9
+  company: None
+  license: MIT
+  min_ansible_version: "2.9"
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+  galaxy_tags:
+    - rhel9
+    - monitoring
+    - prometheus
+    - grafana
+    - alertmanager

@@ -1,0 +1,43 @@
+---
+# Security hardening defaults
+fail2ban_enabled: true
+fail2ban_maxretry: 3
+fail2ban_findtime: 600
+fail2ban_bantime: 3600
+
+firewall_enabled: true
+firewall_ports:
+  - port: "80"
+    protocol: tcp
+  - port: "443"
+    protocol: tcp
+  - port: "22"
+    protocol: tcp
+
+selinux_enabled: true
+selinux_mode: targeted
+
+kernel_parameters:
+  net.ipv4.tcp_syncookies: "1"
+  net.ipv4.tcp_max_syn_backlog: "4096"
+  net.ipv4.ip_forward: "0"
+  net.ipv4.conf.all.send_redirects: "0"
+  net.ipv6.conf.all.disable_ipv6: "1"
+  fs.suid_dumpable: "0"
+  kernel.randomize_va_space: "2"
+  net.ipv4.conf.all.rp_filter: "1"
+  net.ipv4.tcp_tw_reuse: "0"
+  net.ipv4.tcp_fin_timeout: "30"
+  fs.file-max: "2097152"
+  kernel.pid_max: "500000"
+
+nginx_config_dir: /etc/nginx
+nginx_config_mode: "0750"
+nginx_log_dir: /var/log/nginx
+nginx_log_mode: "0755"
+
+disable_services:
+  - atd
+  - cron
+  - polkit-kde-helper
+  - udisks2

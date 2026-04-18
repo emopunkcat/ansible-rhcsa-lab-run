@@ -1,0 +1,12 @@
+---
+# ansible-lint configuration
+skip_list:
+  - name[missing]
+  - yaml[line-length]
+warn_list:
+  - experimental
+  - role-name
+ignore:
+  - roles/security-hardening/defaults/main.yml
+  - roles/monitoring-setup/defaults/main.yml
+  - roles/nginx-reverse-proxy/defaults/main.yml

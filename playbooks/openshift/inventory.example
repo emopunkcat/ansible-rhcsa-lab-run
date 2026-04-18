@@ -1,0 +1,23 @@
+# Ansible RHEL9 Cluster Security Playbooks - OpenShift Inventory Example
+# Configure your OpenShift cluster connection details
+
+[openshift]
+localhost ansible_connection=local
+
+# OpenShift cluster configuration (set these in inventory.ini or use vault)
+openshift_server_url=https://your-openshift-cluster.example.com:6443
+openshift_kubeconfig=/home/openshift/.kube/config
+openshift_cluster_name=production
+openshift_version=4.14
+
+# Route configuration
+openshift_route_url=https://nginx-proxy.your-domain.example.com
+
+# Security context constraints (optional)
+openshift_scc=restricted
+
+[monitoring]
+localhost ansible_connection=local
+
+[log_aggregation]
+elk.openshift.svc.cluster.local ansible_host=192.168.1.30

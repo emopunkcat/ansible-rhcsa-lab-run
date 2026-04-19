@@ -27,7 +27,7 @@ jobs:
       - name: Install Ansible and collections
         run: |
           pip install ansible ansible-lint yamllint
-          ansible-galaxy collection install -r requirements.yml
+          ansible-galaxy collection install -r requirements.yml --collections-path "{{ github.workspace }}/collections"
 
       - name: Run ansible-lint
         run: ansible-lint playbooks/ roles/ --strict
@@ -51,7 +51,7 @@ jobs:
       - name: Install Ansible and collections
         run: |
           pip install ansible
-          ansible-galaxy collection install -r requirements.yml
+          ansible-galaxy collection install -r requirements.yml --collections-path "{{ github.workspace }}/collections"
 
       - name: Run syntax check on site.yml
         run: ansible-playbook playbooks/site.yml --syntax-check -i inventory.ini
@@ -165,7 +165,7 @@ jobs:
       - name: Install Ansible and collections
         run: |
           pip install ansible
-          ansible-galaxy collection install -r requirements.yml
+          ansible-galaxy collection install -r requirements.yml --collections-path "{{ github.workspace }}/collections"
 
       - name: Deploy to staging hosts
         run: |

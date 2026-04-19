@@ -8,7 +8,7 @@ on:
     branches: [main, master]
 
 env:
-  ANSIBLE_COLLECTIONS_PATH: "${HOME}/.ansible/collections"
+  ANSIBLE_COLLECTIONS_PATH: "/home/runner/.ansible/collections"
   PYTHONDONTWRITEBYTECODE: "1"
 
 jobs:

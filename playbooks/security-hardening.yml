@@ -126,9 +126,9 @@
 
     - name: Configure SELinux for nginx (if enabled)
       ansible.posix.selinux:
-        option: targeted
-        value: on
-      when: "'selinux_enabled' in ansible_selinux.status"
+        policy: targeted
+        state: enforcing
+      when: selinux_enabled | default(false)
 
     - name: Set strict umask for nginx
       ansible.builtin.file:
@@ -191,37 +191,35 @@
           ========================================
           SECURITY HARDENING COMPLETE
           ========================================
-          
+
           Kernel Parameters Applied: 12
           Fail2ban Jails Configured: 3
           Firewall Rules: nginx (80/443), ssh enabled
           SELinux: {{ 'Enabled' if ansible_selinux.status.enabled else 'Disabled' }}
-          
+
           Next Steps:
           1. Review fail2ban logs: journalctl -u fail2ban
           2. Test fail2ban with simulated attack
           3. Configure monitoring for security events
           ========================================
 
-  # Error handling
-  error_handlers:
-    - name: Handle hardening failures
-      block:
-        - name: Log security hardening failure
-          ansible.builtin.debug:
-            msg: "Security hardening failed on {{ inventory_hostname }}. Critical security controls may not be applied."
+    # Error handling
+    - name: Log failure details
+      ansible.builtin.debug:
+        msg: "Security hardening failed on {{ inventory_hostname }}"
+      failed_when: false
 
-        - name: Alert security team
-          community.general.mail:
-            to: security@example.com
-            subject: "Security Hardening Failed: {{ inventory_hostname }}"
-            body: |
-              Security hardening playbook failed on {{ inventory_hostname }}
-              
-              Error: {{ ansible_failed_result.msg | default('Unknown error') }}
-              
-              This may leave the system vulnerable. Please investigate immediately.
-            mail_from: deploy@example.com
+    - name: Send alert to monitoring
+      community.general.mail:
+        to: admin@example.com
+        subject: "Security Hardening Failed: {{ inventory_hostname }}"
+        body: |
+          Security hardening failed on {{ inventory_hostname }}
+
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+
+          This may leave the system vulnerable. Please investigate immediately.
+      failed_when: false
 
   # Tags for selective execution
   tags:

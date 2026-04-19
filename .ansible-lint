@@ -6,7 +6,10 @@ skip_list:
 warn_list:
   - experimental
   - role-name
-ignore:
-  - roles/security-hardening/defaults/main.yml
-  - roles/monitoring-setup/defaults/main.yml
-  - roles/nginx-reverse-proxy/defaults/main.yml
+exclude_paths:
+  - inventory.ini
+kinds:
+  - main: roles/nginx-reverse-proxy/tasks/main.yml
+    type: playbook
+  - main: playbooks/openshift/site.yml
+    type: playbook

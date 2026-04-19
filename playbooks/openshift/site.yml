@@ -125,45 +125,43 @@
           ========================================
           OPENSHIFT DEPLOYMENT COMPLETE
           ========================================
-          
+
           Namespace: nginx-proxy
           Deployment: nginx-proxy
           Route: {{ openshift_route_url | default('N/A') }}
           Service: nginx-proxy:8080/tcp
-          
+
           Security Context Constraints Applied:
           - SCC: restricted (if configured)
           - Network Policies: Enabled
-          
+
           Monitoring Stack:
           - Prometheus Operator: Deployed
           - Grafana: Available at monitoring namespace
-          
+
           Next Steps:
           1. oc get pods -n nginx-proxy
           2. oc logs -f -l app=nginx-proxy
           3. Access route: {{ openshift_route_url | default('N/A') }}
           ========================================
 
-  # Error handling
-  error_handlers:
+    # Error handling
     - name: Handle OpenShift deployment failures
-      block:
-        - name: Log failure details
-          ansible.builtin.debug:
-            msg: "OpenShift deployment failed on {{ inventory_hostname }}. Check OpenShift events with 'oc get events -n nginx-proxy'."
+      ansible.builtin.debug:
+        msg: "OpenShift deployment failed on {{ inventory_hostname }}. Check OpenShift events with 'oc get events -n nginx-proxy'."
+      failed_when: false
 
-        - name: Send alert to monitoring
-          community.general.mail:
-            to: openshift-alerts@example.com
-            subject: "Ansible OpenShift Deployment Failed: {{ inventory_hostname }}"
-            body: |
-              OpenShift deployment failed on {{ inventory_hostname }}
-              
-              Error: {{ ansible_failed_result.msg | default('Unknown error') }}
-              
-              Please check OpenShift events with 'oc get events -n nginx-proxy' for more details.
-            mail_from: deploy@example.com
+    - name: Send alert to monitoring
+      community.general.mail:
+        to: openshift-alerts@example.com
+        subject: "Ansible OpenShift Deployment Failed: {{ inventory_hostname }}"
+        body: |
+          OpenShift deployment failed on {{ inventory_hostname }}
+
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+
+          Please check OpenShift events with 'oc get events -n nginx-proxy' for more details.
+      failed_when: false
 
   # Tags for selective execution
   tags:

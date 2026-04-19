@@ -26,18 +26,18 @@
         manager: auto
 
     - name: Check disk space before deployment
-      community.general.disk:
-        path: /var
+      ansible.builtin.command: df -h /var
       register: disk_check
+      changed_when: false
       when: ansible_os_family == "RedHat"
 
     - name: Warn if disk space is low
       ansible.builtin.debug:
-        msg: "Low disk space on {{ item.mount }}: {{ item.used_pct }}% used (min 80%)"
-      loop: "{{ disk_check.disks }}"
+        msg: "{{ disk_check.stdout_lines | join(' | ') }}"
       when:
-        - disk_check.disks is defined
-        - item.used_pct is defined
+        - disk_check is defined
+        - disk_check.stdout is defined
+        - disk_check.stdout | regex_search('([8-9][0-9]|100)%')
         - item.used_pct | float >= 80
 
     - name: Create deployment log directory
@@ -145,7 +145,7 @@
           ========================================
 
   # Error handling
-  error_handlers:
+  post_tasks:
     - name: Handle deployment failures
       block:
         - name: Log failure details
@@ -158,11 +158,11 @@
             subject: "Ansible Deployment Failed: {{ inventory_hostname }}"
             body: |
               Deployment failed on {{ inventory_hostname }}
-              
+
               Error: {{ ansible_failed_result.msg | default('Unknown error') }}
-              
+
               Please check /var/log/nginx-deploy/error.log for more details.
-            mail_from: deploy@example.com
+            sender: deploy@example.com
 
   # Tags for selective execution
   tags:
@@ -172,5 +172,4 @@
     - monitoring
     - deployment
 
-  # Vault configuration (optional)
-  vault_password_file: /etc/ansible/vault_pass.txt  # Uncomment if using vault
+  # Vault configuration (optional) - set via ansible.cfg: vault_password_file=/etc/ansible/vault_pass.txt

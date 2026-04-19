@@ -25,7 +25,7 @@
   # Install Prometheus client libraries
   tasks:
     - name: Install Python monitoring libraries
-      ansible.builtin.yum:
+      ansible.builtin.dnf:
         name:
           - python3-prometheus-client
           - python3-psutil
@@ -89,13 +89,13 @@
               'Total number of HTTP requests',
               ['method', 'status', 'endpoint']
           )
-          
+
           nginx_connections_active = Gauge(
               'nginx_connections_active',
               'Number of active connections',
               ['state']
           )
-          
+
           nginx_request_duration = Histogram(
               'nginx_request_duration_seconds',
               'Request duration in seconds',
@@ -174,7 +174,7 @@
         mode: '0644'
 
     - name: Install Grafana (optional, for visualization)
-      ansible.builtin.yum:
+      ansible.builtin.dnf:
         name: grafana
         state: present
       when: grafana_enabled | default(true)
@@ -183,7 +183,7 @@
       ansible.builtin.copy:
         content: |
           apiVersion: 1
-          
+
           datasources:
             - name: Prometheus
               type: prometheus
@@ -301,7 +301,7 @@
                   {
                     "datasource": "Prometheus",
                     "expr": "rate(nginx_requests_total[5m])",
-                    "legendFormat": "{{method}} {{status}}",
+                    "legendFormat": "{{ method }} {{ status }}",
                     "refId": "A"
                   }
                 ],
@@ -371,7 +371,7 @@
                   {
                     "datasource": "Prometheus",
                     "expr": "rate(nginx_connections_active[5m])",
-                    "legendFormat": "{{state}}",
+                    "legendFormat": "{{ state }}",
                     "refId": "A"
                   }
                 ],
@@ -442,13 +442,13 @@
 
             - name: 'critical-alerts'
               slack_configs:
-                - api_url: '{{ .Values.slack_api_url }}'
+                - api_url: '{{ slack_api_url }}'
                   channel: '#alerts-critical'
                   send_resolved: true
 
             - name: 'warning-alerts'
               slack_configs:
-                - api_url: '{{ .Values.slack_api_url }}'
+                - api_url: '{{ slack_api_url }}'
                   channel: '#alerts-warning'
                   send_resolved: true
 
@@ -476,44 +476,42 @@
           ========================================
           MONITORING STACK DEPLOYED
           ========================================
-          
+
           Components Installed:
           - Prometheus client libraries: ✓
           - Metrics endpoint: /var/lib/nginx_metrics
           - Grafana: {{ '✓' if grafana_installed else '✗ (optional)' }}
           - AlertManager: ✓
           - Dashboard templates: ✓
-          
+
           Access Points:
           - Metrics: http://localhost:9115/metrics
           - Grafana: http://grafana.example.com (if enabled)
           - AlertManager: http://localhost:9093
-          
+
           Next Steps:
           1. Configure alert receivers in AlertManager
           2. Customize Grafana dashboards as needed
           3. Set up webhook endpoints for alerts
           ========================================
 
-  # Error handling
-  error_handlers:
+    # Error handling
     - name: Handle monitoring setup failures
-      block:
-        - name: Log monitoring failure
-          ansible.builtin.debug:
-            msg: "Monitoring setup failed on {{ inventory_hostname }}. Metrics and alerting may not be functional."
+      ansible.builtin.debug:
+        msg: "Monitoring setup failed on {{ inventory_hostname }}. Metrics and alerting may not be functional."
+      failed_when: false
 
-        - name: Alert operations team
-          community.general.mail:
-            to: ops@example.com
-            subject: "Monitoring Setup Failed: {{ inventory_hostname }}"
-            body: |
-              Monitoring stack deployment failed on {{ inventory_hostname }}
-              
-              Error: {{ ansible_failed_result.msg | default('Unknown error') }}
-              
-              This will impact observability and alerting capabilities.
-            mail_from: deploy@example.com
+    - name: Alert operations team
+      community.general.mail:
+        to: ops@example.com
+        subject: "Monitoring Setup Failed: {{ inventory_hostname }}"
+        body: |
+          Monitoring stack deployment failed on {{ inventory_hostname }}
+
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+
+          This will impact observability and alerting capabilities.
+      failed_when: false
 
   # Tags for selective execution
   tags:

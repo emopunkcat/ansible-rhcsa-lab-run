@@ -265,24 +265,46 @@
           # Check if certificates exist
           if [ ! -f "$CERT_FILE" ] || [ ! -f "$KEY_FILE" ]; then
               echo "SSL certificates not found. Generating self-signed for testing..."
-              
+
               # Generate self-signed certificate (replace with real certs in production)
               openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
                   -keyout "$KEY_FILE" \
                   -out "$CERT_FILE" \
                   -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"
-              
+
               # Create chain file if exists
               if [ -f "$CHAIN_FILE" ]; then
                   cat "$CERT_FILE" "$CHAIN_FILE" > "$SSL_DIR/fullchain.pem"
               fi
           else
               echo "SSL certificates exist. Checking expiration..."
-              
+
               # Check certificate expiration (30 days warning)
               EXPIRY=$(openssl x509 -enddate -noout -in "$CERT_FILE" | cut -d= -f2)
               EXPIRY_DATE=$(date -d "$EXPIRY" +%s)
               NOW=$(date +%s)
               DAYS_UNTIL_EXPIRY=$(( (EXPIRY_DATE - NOW) / 86400 ))
-              
-              if [ $DAYS_UNTI
+
+              if [ $DAYS_UNTIL_EXPIRY -le 30 ]; then
+                  echo "Certificate expires in $DAYS_UNTIL_EXPIRY days. Renewal needed."
+              else
+                  echo "Certificate valid for $DAYS_UNTIL_EXPIRY days."
+              fi
+          fi
+
+          # Set proper permissions on certificates
+          chmod 644 "$CERT_FILE" "$KEY_FILE" "$CHAIN_FILE" 2>/dev/null
+          chmod 600 "$KEY_FILE" 2>/dev/null
+      when: ssl_dir is defined
+
+    - name: Restart nginx
+      ansible.builtin.service:
+        name: nginx
+        state: restarted
+      notify: Check nginx status
+
+    - name: Enable and start nginx
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: true

@@ -8,7 +8,7 @@ on:
     branches: [main, master]
 
 env:
-  ANSIBLE_COLLECTIONS_PATH: "${{ github.workspace }}/collections"
+  ANSIBLE_COLLECTIONS_PATH: "${HOME}/.ansible/collections"
   PYTHONDONTWRITEBYTECODE: "1"
 
 jobs:
@@ -27,7 +27,7 @@ jobs:
       - name: Install Ansible and collections
         run: |
           pip install ansible ansible-lint yamllint
-          ansible-galaxy collection install -r requirements.yml --collections-path "${ANSIBLE_COLLECTIONS_PATH}"
+          ansible-galaxy collection install -r requirements.yml
 
       - name: Run ansible-lint
         run: ansible-lint playbooks/ roles/ --strict
@@ -51,7 +51,7 @@ jobs:
       - name: Install Ansible and collections
         run: |
           pip install ansible
-          ansible-galaxy collection install -r requirements.yml --collections-path "${ANSIBLE_COLLECTIONS_PATH}"
+          ansible-galaxy collection install -r requirements.yml
 
       - name: Run syntax check on site.yml
         run: ansible-playbook playbooks/site.yml --syntax-check -i inventory.ini
@@ -165,7 +165,7 @@ jobs:
       - name: Install Ansible and collections
         run: |
           pip install ansible
-          ansible-galaxy collection install -r requirements.yml --collections-path "${ANSIBLE_COLLECTIONS_PATH}"
+          ansible-galaxy collection install -r requirements.yml
 
       - name: Deploy to staging hosts
         run: |

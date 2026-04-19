@@ -145,7 +145,6 @@
           ========================================
 
   # Error handling
-  post_tasks:
     - name: Handle deployment failures
       block:
         - name: Log failure details

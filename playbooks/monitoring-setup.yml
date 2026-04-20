@@ -8,7 +8,7 @@
   vars_files:
     - ../inventory.ini
   environment:
-    ANSIBLE_CALLBACK_PLUGINS: community.general.profile_tasks
+    ANSIBLE_CALLBACK_PLUGINS: ansible.builtin.profile_tasks
 
   # Pre-flight checks
   pre_tasks:

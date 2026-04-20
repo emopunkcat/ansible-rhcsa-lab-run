@@ -8,7 +8,7 @@
   vars_files:
     - ../inventory.ini
   environment:
-    ANSIBLE_CALLBACK_PLUGINS: community.general.profile_tasks
+    ANSIBLE_CALLBACK_PLUGINS: ansible.builtin.profile_tasks
 
   # Pre-flight validation
   pre_tasks:
@@ -65,7 +65,7 @@
         group: root
 
     - name: Configure nginx fail2ban jail
-      community.general.lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/fail2ban/jail.local
         line: "{{ item }}"
       loop:
@@ -80,7 +80,7 @@
         - "ignoreip = 127.0.0.1/8,::1"
 
     - name: Configure nginx brute-force protection jail
-      community.general.lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/fail2ban/jail.local
         line: "{{ item }}"
       loop:
@@ -94,7 +94,7 @@
         - "bantime = 7200"
 
     - name: Configure fail2ban action with logging
-      community.general.lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/fail2ban/jail.local
         line: "{{ item }}"
       loop:
@@ -116,13 +116,25 @@
         state: started
 
     - name: Configure firewall rules for nginx
-      community.general.firewall:
-        port:
-          - { port: 80, protocol: tcp, state: present }
-          - { port: 443, protocol: tcp, state: present }
-        service:
-          - { name: ssh, state: present }
-          - { name: docker, state: absent }  # Disable unless needed
+      ansible.builtin.command: "firewall-cmd --permanent --add-port={{ item.port }}/{{ item.protocol }}"
+      changed_when: true
+      loop:
+      - { port: 80, protocol: tcp }
+      - { port: 443, protocol: tcp }
+      register: fw_port_result
+      when: firewall_enabled
+
+    - name: Configure firewall services
+      ansible.builtin.command: "firewall-cmd --permanent --add-service={{ item.name }}"
+      changed_when: true
+      loop:
+      - { name: ssh }
+      when: firewall_enabled
+
+    - name: Disable Docker service in firewall
+      ansible.builtin.command: "firewall-cmd --permanent --remove-service=docker"
+      changed_when: true
+      when: firewall_enabled
 
     - name: Configure SELinux for nginx (if enabled)
       ansible.posix.selinux:

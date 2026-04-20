@@ -17,7 +17,7 @@
     group: root
 
 - name: Configure nginx fail2ban jail
-  community.general.lineinfile:
+  ansible.builtin.lineinfile:
     path: /etc/fail2ban/jail.local
     line: "{{ item }}"
   loop:
@@ -33,7 +33,7 @@
   when: fail2ban_enabled
 
 - name: Configure nginx brute-force protection jail
-  community.general.lineinfile:
+  ansible.builtin.lineinfile:
     path: /etc/fail2ban/jail.local
     line: "{{ item }}"
   loop:
@@ -49,7 +49,7 @@
   when: fail2ban_enabled
 
 - name: Configure fail2ban defaults
-  community.general.lineinfile:
+  ansible.builtin.lineinfile:
     path: /etc/fail2ban/jail.local
     line: "{{ item }}"
   loop:
@@ -88,17 +88,15 @@
   when: firewall_enabled
 
 - name: Configure firewall rules
-  community.general.firewall:
-    port: "{{ item.port }}/{{ item.protocol }}"
-    state: present
-  loop: "{{ firewall_ports }}"
-  when: firewall_enabled
+      ansible.builtin.command: "firewall-cmd --permanent --add-port={{ item.port }}/{{ item.protocol }}"
+      changed_when: true
+      loop: "{{ firewall_ports }}"
+      when: firewall_enabled
 
 - name: Disable Docker service in firewall
-  community.general.firewall:
-    service: docker
-    state: absent
-  when: firewall_enabled
+      ansible.builtin.command: "firewall-cmd --permanent --remove-service=docker"
+      changed_when: true
+      when: firewall_enabled
 
 - name: Configure SELinux
   ansible.posix.selinux:

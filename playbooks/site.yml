@@ -8,7 +8,7 @@
   vars_files:
     - ../inventory.ini  # Load inventory-specific variables if present
   environment:
-    ANSIBLE_CALLBACK_PLUGINS: community.general.profile_tasks
+    ANSIBLE_CALLBACK_PLUGINS: ansible.builtin.profile_tasks
   strategy: linear
   serial: 1
   max_fail_percentage: 25
@@ -76,13 +76,12 @@
       when: package_install_result.changed or ansible_facts['distribution'] == 'Rocky'
 
     - name: Configure nginx as reverse proxy
-      community.general.nginx:
+      ansible.builtin.template:
+        src: ../roles/nginx-reverse-proxy/templates/nginx.conf.j2
         dest: /etc/nginx/nginx.conf
-        template: ../roles/nginx-reverse-proxy/templates/nginx.conf.j2
         owner: root
         group: root
         mode: '0644'
-        state: present
 
     - name: Include security hardening playbook
       ansible.builtin.include_role:
@@ -99,9 +98,9 @@
         name: nginx-reverse-proxy
       tags: nginx
 
-    - name: Verify nginx configuration syntax
-      community.general.nginx:
-        state: reloaded
+    - name: Reload nginx
+      ansible.builtin.command: nginx -t && nginx -s reload
+      changed_when: true
       register: nginx_reload_result
 
     - name: Log nginx reload result

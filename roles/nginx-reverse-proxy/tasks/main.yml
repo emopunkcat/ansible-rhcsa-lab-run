@@ -8,7 +8,7 @@
   vars_files:
     - ../inventory.ini
   environment:
-    ANSIBLE_CALLBACK_PLUGINS: community.general.profile_tasks
+    ANSIBLE_CALLBACK_PLUGINS: ansible.builtin.profile_tasks
 
   tasks:
     # Install nginx if not present
@@ -28,13 +28,12 @@
 
     # Deploy main nginx.conf with full security headers
     - name: Deploy nginx main configuration
-      community.general.nginx:
+      ansible.builtin.template:
+        src: ../templates/nginx.conf.j2
         dest: /etc/nginx/nginx.conf
-        template: ../templates/nginx.conf.j2
         owner: root
         group: root
         mode: '0644'
-        state: present
 
     # Deploy upstream configuration for backend services
     - name: Create upstream configuration directory
@@ -205,13 +204,12 @@
 
     # Deploy main site configuration with all security features
     - name: Deploy main site configuration
-      community.general.nginx:
+      ansible.builtin.template:
+        src: ../templates/site.conf.j2
         dest: /etc/nginx/sites-available/default
-        template: ../templates/site.conf.j2
         owner: root
         group: root
         mode: '0644'
-        state: present
 
     # Create symbolic link for site config
     - name: Link site configuration
